@@ -8,7 +8,8 @@ import com.eatclub.challenge.service.lib.RestaurantDataService;
 import org.springframework.stereotype.Service;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
+import java.time.format.DateTimeParseException;
+import java.util.*;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 
@@ -16,80 +17,101 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class PeakTimeService {
 
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("h:mma");
+    private static final DateTimeFormatter OUTPUT_TIME_FORMATTER = DateTimeFormatter.ofPattern("h:mma");
+
     private final RestaurantDataService restaurantDataService;
 
     public PeakTimeService(RestaurantDataService restaurantDataService) {
         this.restaurantDataService = restaurantDataService;
     }
 
-    public PeakTimeResponse getPeakTime(String timeOfDay) {
+    public PeakTimeResponse getPeakTime() {
         try {
-            // Parse the input time
-            LocalTime targetTime = LocalTime.parse(timeOfDay, DateTimeFormatter.ofPattern("HH:mm"));
-            
             // Fetch restaurant data
-            RestaurantData restaurentData = restaurantDataService.getRestaurantData();
-            if (restaurentData == null || restaurentData.getRestaurants() == null) {
-                log.error("Failed to fetch restaurant data or data is null");
-                throw new RuntimeException("Failed to fetch restaurant data");
-            }
+            RestaurantData restaurantData = Optional.ofNullable(restaurantDataService.getRestaurantData())
+                    .orElseThrow(() -> new RuntimeException("Failed to fetch restaurant data"));
 
             // Get all deals from all restaurants
-            List<RestaurentDeals> allDeals = restaurentData.getRestaurants().stream()
-                .flatMap(restaurant -> restaurant.getDeals().stream())
-                .collect(Collectors.toList());
+            List<RestaurentDeals> allDeals = Optional.ofNullable(restaurantData.getRestaurants())
+                    .orElse(List.of())
+                    .stream()
+                    .flatMap(restaurant -> Optional.ofNullable(restaurant.getDeals())
+                            .orElse(List.of())
+                            .stream())
+                    .collect(Collectors.toList());
 
-            // Find the deal with the most overlap with the target time
-            RestaurentDeals peakDeal = findPeakDeal(allDeals, targetTime);
-            
-            if (peakDeal == null) {
-                log.warn("No active deals found for time: {}", timeOfDay);
+            if (allDeals.isEmpty()) {
+                log.warn("No deals found");
                 return new PeakTimeResponse();
             }
 
-            return new PeakTimeResponse(peakDeal.getOpen(), peakDeal.getClose());
+            // Find the time window with most active deals
+            Map<LocalTime, Integer> hourlyDealCount = new HashMap<>();
+            
+            // Count deals for each hour
+            for (RestaurentDeals deal : allDeals) {
+                try {
+                    String openTimeStr = Optional.ofNullable(deal.getOpen())
+                            .map(String::toLowerCase)
+                            .orElse("12:00am");
+                    String closeTimeStr = Optional.ofNullable(deal.getClose())
+                            .map(String::toLowerCase)
+                            .orElse("11:59pm");
+
+                    LocalTime openTime = LocalTime.parse(openTimeStr, TIME_FORMATTER);
+                    LocalTime closeTime = LocalTime.parse(closeTimeStr, TIME_FORMATTER);
+
+                    // Round times to nearest hour
+                    openTime = roundToNearestHour(openTime);
+                    closeTime = roundToNearestHour(closeTime);
+
+                    // Handle overnight deals
+                    if (closeTime.isBefore(openTime)) {
+                        // Count deals for hours from open time to midnight
+                        for (LocalTime time = openTime; !time.equals(LocalTime.MIDNIGHT); time = time.plusHours(1)) {
+                            hourlyDealCount.merge(time, 1, Integer::sum);
+                        }
+                        // Count deals for hours from midnight to close time
+                        for (LocalTime time = LocalTime.MIDNIGHT; !time.equals(closeTime); time = time.plusHours(1)) {
+                            hourlyDealCount.merge(time, 1, Integer::sum);
+                        }
+                    } else {
+                        // Count deals for each hour in the time window
+                        for (LocalTime time = openTime; !time.equals(closeTime); time = time.plusHours(1)) {
+                            hourlyDealCount.merge(time, 1, Integer::sum);
+                        }
+                    }
+                } catch (DateTimeParseException e) {
+                    log.warn("Error parsing time for deal: {}", deal.getObjectId());
+                }
+            }
+
+            // Find the hour with maximum deals
+            Optional<Map.Entry<LocalTime, Integer>> maxDeals = hourlyDealCount.entrySet()
+                    .stream()
+                    .max(Map.Entry.comparingByValue());
+
+            if (maxDeals.isEmpty()) {
+                return new PeakTimeResponse();
+            }
+
+            LocalTime peakHour = maxDeals.get().getKey();
+            String startTime = peakHour.format(OUTPUT_TIME_FORMATTER);
+            String endTime = peakHour.plusHours(1).format(OUTPUT_TIME_FORMATTER);
+
+            return new PeakTimeResponse(startTime, endTime);
         } catch (Exception e) {
             log.error("Error processing peak time: {}", e.getMessage());
             throw new RuntimeException("Internal server error");
         }
     }
 
-    private RestaurentDeals findPeakDeal(List<RestaurentDeals> deals, LocalTime targetTime) {
-        return deals.stream()
-            .filter(deal -> isDealActive(deal, targetTime))
-            .max((deal1, deal2) -> {
-                int overlap1 = calculateOverlap(deal1, targetTime);
-                int overlap2 = calculateOverlap(deal2, targetTime);
-                return Integer.compare(overlap1, overlap2);
-            })
-            .orElse(null);
-    }
-
-    private boolean isDealActive(RestaurentDeals deal, LocalTime targetTime) {
-        try {
-            LocalTime openTime = LocalTime.parse(deal.getOpen().toLowerCase(), DateTimeFormatter.ofPattern("h:mma"));
-            LocalTime closeTime = LocalTime.parse(deal.getClose().toLowerCase(), DateTimeFormatter.ofPattern("h:mma"));
-            
-            return !targetTime.isBefore(openTime) && !targetTime.isAfter(closeTime);
-        } catch (Exception e) {
-            log.warn("Error parsing time for deal: {}", deal.getObjectId(), e);
-            return false;
+    private LocalTime roundToNearestHour(LocalTime time) {
+        int minutes = time.getMinute();
+        if (minutes >= 30) {
+            return time.plusHours(1).withMinute(0);
         }
-    }
-
-    private int calculateOverlap(RestaurentDeals deal, LocalTime targetTime) {
-        try {
-            LocalTime openTime = LocalTime.parse(deal.getOpen().toLowerCase(), DateTimeFormatter.ofPattern("h:mma"));
-            LocalTime closeTime = LocalTime.parse(deal.getClose().toLowerCase(), DateTimeFormatter.ofPattern("h:mma"));
-            
-            if (targetTime.isBefore(openTime) || targetTime.isAfter(closeTime)) {
-                return 0;
-            }
-            
-            return 1; // For simplicity, we're just checking if the time is within the deal period
-        } catch (Exception e) {
-            log.warn("Error calculating overlap for deal: {}", deal.getObjectId(), e);
-            return 0;
-        }
+        return time.withMinute(0);
     }
 } 

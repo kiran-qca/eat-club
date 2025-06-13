@@ -15,7 +15,7 @@ public class PeakTimeController {
     private final PeakTimeService peakTimeService;
 
     @GetMapping("/peak-time")
-    public PeakTimeResponse getPeakTimeWindow(String timeOfDay) {
-        return peakTimeService.getPeakTime(timeOfDay);
+    public PeakTimeResponse getPeakTimeWindow() {
+        return peakTimeService.getPeakTime();
     }
 } 
