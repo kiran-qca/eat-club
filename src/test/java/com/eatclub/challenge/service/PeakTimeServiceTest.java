@@ -32,12 +32,12 @@ class PeakTimeServiceTest {
         when(restaurantDataService.getRestaurantData()).thenReturn(mockData);
 
         // Act
-        PeakTimeResponse response = peakTimeService.getPeakTime("18:00");
+        PeakTimeResponse response = peakTimeService.getPeakTime();
 
         // Assert
         assertNotNull(response);
-        assertEquals("6:00PM", response.getStartTime());
-        assertEquals("9:00PM", response.getEndTime());
+        assertEquals("6:00pm", response.getStartTime());
+        assertEquals("7:00pm", response.getEndTime());
         verify(restaurantDataService).getRestaurantData();
     }
 
@@ -49,7 +49,7 @@ class PeakTimeServiceTest {
         when(restaurantDataService.getRestaurantData()).thenReturn(emptyData);
 
         // Act
-        PeakTimeResponse response = peakTimeService.getPeakTime("18:00");
+        PeakTimeResponse response = peakTimeService.getPeakTime();
 
         // Assert
         assertNotNull(response);
@@ -58,11 +58,6 @@ class PeakTimeServiceTest {
         verify(restaurantDataService).getRestaurantData();
     }
 
-    @Test
-    void getPeakTime_InvalidTimeFormat() {
-        // Act & Assert
-        assertThrows(RuntimeException.class, () -> peakTimeService.getPeakTime("invalid-time"));
-    }
 
     @Test
     void getPeakTime_ServiceError() {
@@ -71,7 +66,7 @@ class PeakTimeServiceTest {
                 .thenThrow(new RuntimeException("Service error"));
 
         // Act & Assert
-        assertThrows(RuntimeException.class, () -> peakTimeService.getPeakTime("18:00"));
+        assertThrows(RuntimeException.class, () -> peakTimeService.getPeakTime());
         verify(restaurantDataService).getRestaurantData();
     }
 
@@ -81,8 +76,8 @@ class PeakTimeServiceTest {
         RestaurantDetail restaurant = new RestaurantDetail();
         restaurant.setDeals(new ArrayList<>());
         RestaurentDeals deal = new RestaurentDeals();
-        deal.setOpen("6:00PM");
-        deal.setClose("9:00PM");
+        deal.setOpen("6:00pm");
+        deal.setClose("7:00pm");
         restaurant.getDeals().add(deal);
         data.getRestaurants().add(restaurant);
         return data;

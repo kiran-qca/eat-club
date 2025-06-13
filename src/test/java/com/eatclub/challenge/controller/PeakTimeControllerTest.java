@@ -28,11 +28,10 @@ class PeakTimeControllerTest {
         PeakTimeResponse mockResponse = new PeakTimeResponse();
         mockResponse.setStartTime("6:00PM");
         mockResponse.setEndTime("9:00PM");
-        when(peakTimeService.getPeakTime("18:00")).thenReturn(mockResponse);
+        when(peakTimeService.getPeakTime()).thenReturn(mockResponse);
 
         // Act & Assert
-        mockMvc.perform(get("/api/v1/peak-time")
-                .param("timeOfDay", "18:00"))
+        mockMvc.perform(get("/api/v1/peak-time"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.startTime").exists())
                 .andExpect(jsonPath("$.endTime").exists());
@@ -41,12 +40,11 @@ class PeakTimeControllerTest {
     @Test
     void getPeakTimeWindow_ServiceError() throws Exception {
         // Arrange
-        when(peakTimeService.getPeakTime("18:00"))
+        when(peakTimeService.getPeakTime())
                 .thenThrow(new RuntimeException("Internal server error"));
 
         // Act & Assert
-        mockMvc.perform(get("/api/v1/peak-time")
-                .param("timeOfDay", "18:00"))
+        mockMvc.perform(get("/api/v1/peak-time"))
                 .andExpect(status().isInternalServerError());
     }
 } 
